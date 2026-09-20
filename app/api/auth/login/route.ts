@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/db";
 import User from "@/lib/models/User";
+import { createAuthToken } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
     const { email, password } = body;
 
     if (!email || !password) {
@@ -51,10 +53,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(
+    const token = createAuthToken({
+      userId: user._id.toString(),
+      email: user.email,
+      role: user.role,
+    });
+
+    const response = NextResponse.json(
       {
         success: true,
         message: "Login successful",
+        token,
         user: {
           id: user._id,
           name: user.name,
@@ -65,6 +74,16 @@ export async function POST(request: NextRequest) {
       },
       { status: 200 }
     );
+
+    response.cookies.set("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+      path: "/",
+    });
+
+    return response;
   } catch (error) {
     console.error("Login error:", error);
 
