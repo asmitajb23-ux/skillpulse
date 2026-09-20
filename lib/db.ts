@@ -1,18 +1,5 @@
 import mongoose from "mongoose";
 
-declare global {
-  // Cached across Next.js hot reloads in development.
-  // eslint-disable-next-line no-var
-  var mongooseCache: MongooseCache | undefined;
-
-  namespace NodeJS {
-    interface ProcessEnv {
-      MONGODB_URI?: string;
-      MONGODB_DB?: string;
-    }
-  }
-}
-
 export interface MongoDbConfig {
   uri: string;
   dbName?: string;
@@ -23,13 +10,17 @@ interface MongooseCache {
   promise: Promise<typeof mongoose> | null;
 }
 
-const cache: MongooseCache = global.mongooseCache ?? {
+const globalForMongoose = globalThis as typeof globalThis & {
+  mongooseCache?: MongooseCache;
+};
+
+const cache: MongooseCache = globalForMongoose.mongooseCache ?? {
   conn: null,
   promise: null,
 };
 
 if (process.env.NODE_ENV !== "production") {
-  global.mongooseCache = cache;
+  globalForMongoose.mongooseCache = cache;
 }
 
 /**
@@ -51,11 +42,11 @@ export function getMongoDbConfig(): MongoDbConfig {
 }
 
 /**
- * Shared Mongoose connection for API routes and models.
+ * Shared Mongoose connection for future API routes and models.
  *
- * Uses a module-level cache so Next.js does not create a new
- * connection on every hot reload. Call this only when a route
- * needs the database — do not invoke it from the health check.
+ * Cached on `globalThis` so Next.js hot reload does not open extra
+ * connections in development. Call this only from routes that need
+ * the database — do not invoke it from the health check or at import time.
  */
 export async function connectDB(): Promise<typeof mongoose> {
   if (cache.conn) {
@@ -71,6 +62,12 @@ export async function connectDB(): Promise<typeof mongoose> {
     });
   }
 
-  cache.conn = await cache.promise;
+  try {
+    cache.conn = await cache.promise;
+  } catch (error) {
+    cache.promise = null;
+    throw error;
+  }
+
   return cache.conn;
 }
